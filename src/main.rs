@@ -1,5 +1,6 @@
 use anyhow::{anyhow, Context, Result};
 use dialoguer::Input;
+use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Duration;
@@ -88,10 +89,11 @@ fn traverse_and_clean(parent_dir: &Path) -> Result<(usize, usize)> {
     let mut cleaned = 0;
     let mut skipped = 0;
 
-    // 使用 Vec<(PathBuf, usize)> 作为栈，每个元素包含目录路径和深度
-    let mut dir_stack = vec![(parent_dir.to_path_buf(), 0)];
+    // 使用 VecDeque 作为队列实现BFS遍历
+    let mut dir_queue: VecDeque<(PathBuf, usize)> = VecDeque::new();
+    dir_queue.push_back((parent_dir.to_path_buf(), 0));
 
-    while let Some((current_dir, depth)) = dir_stack.pop() {
+    while let Some((current_dir, depth)) = dir_queue.pop_front() {
         let indent = "  ".repeat(depth);
 
         // 打印当前正在遍历的目录
@@ -126,15 +128,14 @@ fn traverse_and_clean(parent_dir: &Path) -> Result<(usize, usize)> {
         // 收集子目录
         match std::fs::read_dir(&current_dir) {
             Ok(entries) => {
-                let mut sub_dirs: Vec<(PathBuf, usize)> = entries
+                let sub_dirs: Vec<(PathBuf, usize)> = entries
                     .filter_map(|entry| entry.ok())
                     .filter(|e| e.path().is_dir())
                     .map(|e| (e.path(), depth + 1))
                     .collect();
 
-                // 反转顺序，使遍历顺序与递归一致
-                sub_dirs.reverse();
-                dir_stack.extend(sub_dirs);
+                // BFS：直接将子目录添加到队列末尾
+                dir_queue.extend(sub_dirs);
             }
             Err(ref e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
                 println!("{}⏭️ [跳过] 无权限访问: {}", indent, current_dir.display());
