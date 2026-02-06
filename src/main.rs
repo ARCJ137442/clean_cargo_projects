@@ -85,6 +85,42 @@ fn execute_cargo_clean(cargo_dir: &Path) -> Result<()> {
     Ok(())
 }
 
+/// 计算目录的磁盘占用大小，返回可读格式的字符串（如 "20MB", "1.2GB"）
+fn get_dir_size_str(path: &Path) -> String {
+    fn dir_size_iter(path: &Path) -> std::io::Result<u64> {
+        let mut total = 0u64;
+        if let Ok(entries) = std::fs::read_dir(path) {
+            for entry in entries.flatten() {
+                total += if entry.path().is_dir() {
+                    dir_size_iter(&entry.path())?
+                } else {
+                    entry.metadata().map(|m| m.len()).unwrap_or(0)
+                };
+            }
+        }
+        Ok(total)
+    }
+
+    match dir_size_iter(path) {
+        Ok(bytes) => {
+            const KB: u64 = 1024;
+            const MB: u64 = KB * 1024;
+            const GB: u64 = MB * 1024;
+
+            if bytes >= GB {
+                format!("{:.1}GB", bytes as f64 / GB as f64)
+            } else if bytes >= MB {
+                format!("{:.1}MB", bytes as f64 / MB as f64)
+            } else if bytes >= KB {
+                format!("{:.1}KB", bytes as f64 / KB as f64)
+            } else {
+                format!("{}B", bytes)
+            }
+        }
+        Err(_) => String::from("?"), // 无法计算时显示问号
+    }
+}
+
 fn traverse_and_clean(parent_dir: &Path) -> Result<(usize, usize)> {
     let mut cleaned = 0;
     let mut skipped = 0;
@@ -105,7 +141,8 @@ fn traverse_and_clean(parent_dir: &Path) -> Result<(usize, usize)> {
         let cargo_toml = current_dir.join("Cargo.toml");
         let target_dir = current_dir.join("target");
         if cargo_toml.exists() && target_dir.exists() {
-            println!("{}  └── ✓ 找到 Cargo.toml + target/", indent);
+            let target_size = get_dir_size_str(&target_dir);
+            println!("{}  └── ✓ 找到 Cargo.toml + target/ ({})", indent, target_size);
 
             match ask_and_clean(&current_dir) {
                 Ok(action) => {
